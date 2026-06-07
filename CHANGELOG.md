@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Example implementations:
+  - `CachingProxy` — in-memory LRU cache with TTL
+  - `FallbackProxy` — multi-backend circuit-breaker across multiple OpenAI-compatible endpoints
+  - `RateLimitingProxy` — token-bucket rate limiter with `429 Too Many Requests` responses
+
 ## [0.1.0] - 2026-06-07
 
 ### Added

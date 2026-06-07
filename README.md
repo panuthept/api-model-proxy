@@ -163,6 +163,15 @@ class CachingProxy(APIModelProxy):
         return response
 ```
 
+### More examples
+
+See the [`examples/`](examples/) directory for ready-to-use proxy implementations:
+
+- [`persistant_logging_proxy.py`](examples/persistant_logging_proxy.py) — logs every request/response to daily JSONL or YAML files
+- [`caching_proxy.py`](examples/caching_proxy.py) — in-memory LRU response cache with configurable TTL
+- [`fallback_proxy.py`](examples/fallback_proxy.py) — multi-backend circuit-breaker with automatic fallback
+- [`rate_limiting_proxy.py`](examples/rate_limiting_proxy.py) — token-bucket rate limiter returning `429 Too Many Requests`
+
 ## Endpoints
 
 ### Inference (hooks fire)
