@@ -28,10 +28,7 @@ A lightweight, extensible proxy layer for OpenAI-compatible APIs. Drop it betwee
 ## Installation
 
 ```bash
-git clone https://github.com/panuthept/api-model-proxy.git
-cd api-model-proxy
-python -m venv venv && source venv/bin/activate
-pip install -e .
+pip install api-model-proxy
 ```
 
 ## Quick Start
