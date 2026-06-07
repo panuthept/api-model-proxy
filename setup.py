@@ -13,5 +13,6 @@ setup(
         "uvicorn[standard]>=0.23.0",
         "openai>=1.0.0",
         "httpx>=0.24.0",
+        "pyyaml>=6.0",
     ],
 )
