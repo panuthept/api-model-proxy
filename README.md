@@ -2,6 +2,10 @@
 
 A lightweight, extensible proxy layer for OpenAI-compatible APIs. Drop it between your application and any OpenAI-compatible backend to intercept, log, modify, or filter requests and responses — without changing your existing client code.
 
+[![Python](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![GitHub](https://img.shields.io/badge/github-panuthept%2Fapi--model--proxy-blue?logo=github)](https://github.com/panuthept/api-model-proxy)
+
 ## Features
 
 - **OpenAI-compatible** — works as a drop-in with any `openai.OpenAI` client by setting `base_url`
@@ -9,6 +13,17 @@ A lightweight, extensible proxy layer for OpenAI-compatible APIs. Drop it betwee
 - **Full API coverage** — proxies all inference endpoints (chat, completions, responses, embeddings, audio, images, moderations) with hooks; all other endpoints (models, files, fine-tuning, batches, vector stores, etc.) are forwarded transparently
 - **Error visibility** — `_postprocess_response` is called on both success and error responses, allowing subclasses to inspect or modify errors
 - **FastAPI + uvicorn** — async, production-ready server with auto-generated docs at `/docs`
+
+## Use Cases
+
+| Use case | Approach |
+|---|---|
+| **Request/response logging** | Override both hooks to log to stdout, a file, or an external service |
+| **Model gating / filtering** | Raise in `_preprocess_request` to block disallowed models or prompt patterns |
+| **Response caching** | Cache response dicts in `_postprocess_response` and serve from `_preprocess_request` |
+| **Rate limiting / usage tracking** | Track request counts or token usage per user in `_postprocess_response` |
+| **Prompt augmentation** | Inject system messages or rewrite user messages in `_preprocess_request` |
+| **A/B testing** | Route requests to different model versions conditionally in `_preprocess_request` |
 
 ## Installation
 
@@ -58,6 +73,53 @@ print(response.choices[0].message.content)
 ```
 
 No other changes needed — the proxy is fully transparent to the client.
+
+## Deployment
+
+### Docker
+
+```dockerfile
+FROM python:3.12-slim
+
+WORKDIR /app
+COPY . .
+RUN pip install --no-cache-dir -e .
+
+CMD ["python", "-c", "
+from openai import OpenAI
+from api_model_proxy import APIModelProxy
+
+class LoggingProxy(APIModelProxy):
+    def _preprocess_request(self, request):
+        print(f'Request: {request}')
+        return request
+    def _postprocess_response(self, response):
+        print(f'Response: {response}')
+        return response
+
+client = OpenAI(api_key='your-api-key', base_url='https://api.openai.com/v1')
+LoggingProxy(client).deploy(host='0.0.0.0', port=8000)
+"]
+```
+
+### docker-compose
+
+```yaml
+version: "3.9"
+services:
+  proxy:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:?required}
+```
+
+Run with:
+
+```bash
+OPENAI_API_KEY=sk-... docker compose up
+```
 
 ## Customisation
 
@@ -128,6 +190,17 @@ All other endpoints — models, files, fine-tuning, batches, vector stores, eval
 ## Streaming
 
 Streaming (`stream=True`) is not yet supported. Requests with `stream=True` will receive a `501 Not Implemented` response. Streaming support is planned for the next version.
+
+## Running Tests
+
+The test suite uses `pytest`. Install the development dependencies and run:
+
+```bash
+pip install pytest pytest-mock
+pytest tests/ -v
+```
+
+The tests use a mocked `OpenAI` client so no API key or network access is required.
 
 ## Project Structure
 
