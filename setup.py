@@ -8,5 +8,10 @@ setup(
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     python_requires=">=3.8",
-    install_requires=[],
+    install_requires=[
+        "fastapi>=0.100.0",
+        "uvicorn[standard]>=0.23.0",
+        "openai>=1.0.0",
+        "httpx>=0.24.0",
+    ],
 )
