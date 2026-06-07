@@ -32,6 +32,9 @@ def create_app(proxy: "APIModelProxy") -> FastAPI:
 
     # ------------------------------------------------------------------
     # Inference routers (hooks fire on these)
+    # Registered under both "" and "/v1" so the proxy works regardless
+    # of whether the client sets base_url="http://host:port" or
+    # base_url="http://host:port/v1".
     # ------------------------------------------------------------------
     from .routes.chat import router as chat_router
     from .routes.completions import router as completions_router
@@ -41,13 +44,14 @@ def create_app(proxy: "APIModelProxy") -> FastAPI:
     from .routes.images import router as images_router
     from .routes.moderations import router as moderations_router
 
-    app.include_router(chat_router, prefix="/v1")
-    app.include_router(completions_router, prefix="/v1")
-    app.include_router(responses_router, prefix="/v1")
-    app.include_router(embeddings_router, prefix="/v1")
-    app.include_router(audio_router, prefix="/v1")
-    app.include_router(images_router, prefix="/v1")
-    app.include_router(moderations_router, prefix="/v1")
+    for prefix in ("", "/v1"):
+        app.include_router(chat_router, prefix=prefix)
+        app.include_router(completions_router, prefix=prefix)
+        app.include_router(responses_router, prefix=prefix)
+        app.include_router(embeddings_router, prefix=prefix)
+        app.include_router(audio_router, prefix=prefix)
+        app.include_router(images_router, prefix=prefix)
+        app.include_router(moderations_router, prefix=prefix)
 
     # ------------------------------------------------------------------
     # Passthrough router — must be registered LAST (catch-all)
