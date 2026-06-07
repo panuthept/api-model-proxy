@@ -7,12 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-06-07
+
+### Fixed
+
+- `setup.py`: added `long_description` (reads `README.md`), `long_description_content_type`, `url`, `license`, `classifiers`, and `keywords` so PyPI renders a proper project description page
+
+## [0.1.1] - 2026-06-07
+
 ### Added
 
-- Example implementations:
-  - `CachingProxy` — in-memory LRU cache with TTL
-  - `FallbackProxy` — multi-backend circuit-breaker across multiple OpenAI-compatible endpoints
-  - `RateLimitingProxy` — token-bucket rate limiter with `429 Too Many Requests` responses
+- `PersistantLoggingProxy` example — logs every request/response to daily JSONL or YAML files
+- `CachingProxy` example — in-memory LRU response cache with configurable TTL
+- `FallbackProxy` example — multi-backend circuit-breaker across multiple OpenAI-compatible endpoints
+- `RateLimitingProxy` example — token-bucket rate limiter with `429 Too Many Requests` responses
+- Test suite (pytest with mocked `OpenAI` client)
+
+### Changed
+
+- Added `pyyaml` runtime dependency (used by `PersistantLoggingProxy`)
 
 ## [0.1.0] - 2026-06-07
 

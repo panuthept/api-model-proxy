@@ -24,7 +24,7 @@ def create_app(proxy: "APIModelProxy") -> FastAPI:
     app = FastAPI(
         title="API Model Proxy",
         description="OpenAI-compatible proxy with pre/post-processing hooks.",
-        version="0.1.0",
+        version="0.1.2",
     )
 
     # Store proxy on app state so route handlers can access it via request.app.state.proxy
