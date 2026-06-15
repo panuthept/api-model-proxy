@@ -1,66 +1,64 @@
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import Any, Callable, Optional
 
 from openai import OpenAI
-from api_model_proxy import APIModelProxy
+from api_model_proxy import APIModelProxy, PipelineResult
 
 
 class FallbackProxy(APIModelProxy):
     """An :class:`~api_model_proxy.proxy.APIModelProxy` subclass that routes
-    requests across multiple OpenAI-compatible backends with circuit-breaker
-    style fallback.
+    requests across multiple OpenAI-compatible backends with automatic
+    fallback on failure.
 
-    When a backend returns an error response the proxy marks it as
-    *unhealthy* and automatically routes subsequent requests to the
-    next healthy fallback.  When all backends are unhealthy they are
-    all reset on the next request.
+    The first backend in the list is the primary.  If it returns an error
+    response, the proxy tries the next backend, and so on.  If all
+    backends fail, the last error is returned to the caller.
 
     Usage::
 
-        proxy = FallbackProxy([
-            ("https://api.openai.com/v1",  "sk-...", "gpt-4o"),
-            ("https://api.example.com/v1", "sk-...", "example-model"),
-        ])
-        proxy.deploy()
+        backends = [
+            ("https://api.openai.com/v1", "sk-...", "gpt-4o"),
+            ("http://localhost:1234/v1", "", "local-model"),
+        ]
+        proxy = FallbackProxy(backends)
 
     Args:
         fallbacks: A list of ``(base_url, api_key, model)`` tuples.
-            The first entry is treated as the primary backend.
+            The first entry is the primary backend.
     """
 
-    def __init__(self, fallbacks: List[Tuple[str, str, str]]) -> None:
-        self._fallback_list: List[dict] = []
-        for base_url, api_key, model in fallbacks:
-            client = OpenAI(api_key=api_key, base_url=base_url)
-            self._fallback_list.append({
-                "client": client,
-                "model": model,
-                "healthy": True,
-            })
+    def __init__(self, fallbacks: list[tuple[str, str, str]]) -> None:
+        clients = [
+            OpenAI(base_url=url, api_key=key) for url, key, _ in fallbacks
+        ]
+        super().__init__(clients[0])
+        self._clients = clients
+        self._models = [m for _, _, m in fallbacks]
+        self._healthy = [True] * len(clients)
+        self._fallbacks = fallbacks
 
-        if not self._fallback_list:
-            raise ValueError("At least one fallback entry is required")
+    # ------------------------------------------------------------------
+    # Pipeline override — multi-backend fallback
+    # ------------------------------------------------------------------
 
-        super().__init__(self._fallback_list[0]["client"])
-        self._current_index = 0
+    def execute_request(
+        self,
+        body: dict,
+        sdk_method: Callable[..., Any],
+        serializer: Callable[[Any], dict] = lambda r: r.model_dump(),
+    ) -> PipelineResult:
+        for idx in range(len(self._clients)):
+            if not self._healthy[idx]:
+                continue
 
-    def _preprocess_request(self, request: dict) -> dict:
-        for i, fb in enumerate(self._fallback_list):
-            if fb["healthy"]:
-                self._current_index = i
-                self._client = fb["client"]
-                request["model"] = fb["model"]
-                return request
+            self._client = self._clients[idx]
+            result = super().execute_request(body, sdk_method, serializer)
 
-        for fb in self._fallback_list:
-            fb["healthy"] = True
-        self._current_index = 0
-        self._client = self._fallback_list[0]["client"]
-        request["model"] = self._fallback_list[0]["model"]
-        return request
+            if "error" not in result.content:
+                return result
 
-    def _postprocess_response(self, response: dict) -> dict:
-        if "error" in response:
-            self._fallback_list[self._current_index]["healthy"] = False
-        return response
+            self._healthy[idx] = False
+
+        # All backends exhausted — return the last result
+        return result
