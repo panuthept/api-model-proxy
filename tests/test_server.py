@@ -9,7 +9,7 @@ class TestCreateApp:
     def test_returns_fastapi_app(self, proxy: MagicMock):
         app = create_app(proxy)
         assert app.title == "API Model Proxy"
-        assert app.version == "0.1.0"
+        assert app.version == "0.1.2"
 
     def test_stores_proxy_on_state(self, proxy: MagicMock):
         app = create_app(proxy)
