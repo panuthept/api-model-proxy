@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+| **Unreleased** | — | Added | `PipelineResult` dataclass — the only contract between proxy pipeline and route handlers
+| | | Added | `APIModelProxy.execute_request(body, sdk_method, serializer)` — overridable pipeline method (default: preprocess → SDK → serialize → postprocess)
+| | | Added | `_error_to_dict()` and `_status_code()` as shared module-level helpers in `proxy.py`
+| | | Changed | All inference route handlers now delegate to `execute_request()` instead of managing the pipeline themselves — no more duplicated `try/except OpenAIError` / `_openai_error_to_dict` / `_status_code` in individual route files
+| | | Changed | `CachingProxy` example now overrides `execute_request()` — true short-circuit, no wasted upstream call on cache hit
+| | | Changed | `FallbackProxy` example now overrides `execute_request()` — cleaner backend iteration without mutating `self._client` in hooks
+| | | Removed | Duplicated `_openai_error_to_dict` / `_status_code` helpers from all 7 route files (consolidated into `proxy.py`)
+
 ## [0.1.2] - 2026-06-07
 
 ### Fixed
