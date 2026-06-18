@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
 from fastapi.testclient import TestClient
-from openai import APIError, APIStatusError, OpenAIError
+from openai import APIStatusError, OpenAIError
 from openai.types.chat import ChatCompletion, ChatCompletionMessage
 from openai.types.chat.chat_completion import Choice
 
