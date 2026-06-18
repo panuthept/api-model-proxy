@@ -1,35 +1,33 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 router = APIRouter(tags=["Chat"])
 
-_STREAMING_NOT_SUPPORTED = {
-    "error": {
-        "message": (
-            "Streaming is not yet supported by this proxy. "
-            "It will be available in a future version."
-        ),
-        "type": "not_implemented",
-        "code": "streaming_not_supported",
-    }
-}
-
 
 @router.post("/chat/completions")
-async def chat_completions(request: Request) -> JSONResponse:
+async def chat_completions(request: Request):
     """Proxy for ``POST /v1/chat/completions``.
 
-    Delegates the full request pipeline to
-    :meth:`APIModelProxy.execute_request`.
+    For non-streaming requests, delegates to
+    :meth:`APIModelProxy.execute_request` and returns JSON.
+
+    For streaming requests (``stream=True``), delegates to
+    :meth:`APIModelProxy.execute_streaming_request` and returns
+    a ``text/event-stream`` SSE response.
     """
     proxy = request.app.state.proxy
     body: dict = await request.json()
 
-    # TODO(streaming): implement SSE streaming pass-through
     if body.get("stream"):
-        return JSONResponse(status_code=501, content=_STREAMING_NOT_SUPPORTED)
+        return StreamingResponse(
+            proxy.execute_streaming_request(
+                body=body,
+                sdk_method=proxy._client.chat.completions.create,
+            ),
+            media_type="text/event-stream",
+        )
 
     result = proxy.execute_request(
         body=body,
