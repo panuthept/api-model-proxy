@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from typing import Any, Callable, TYPE_CHECKING
 
 import uvicorn
@@ -124,9 +125,49 @@ class APIModelProxy:
 
         return PipelineResult(content=response, status_code=status)
 
-    # ------------------------------------------------------------------
-    # Server
-    # ------------------------------------------------------------------
+    def execute_streaming_request(
+        self,
+        body: dict,
+        sdk_method: Callable[..., Any],
+        serializer: Callable[[Any], dict] = lambda r: r.model_dump(),
+    ) -> AsyncGenerator[bytes, None]:
+        """Execute the streaming request pipeline.
+
+        The default implementation runs::
+
+            body = _preprocess_request(body)
+            stream = sdk_method(**body, stream=True)
+            for chunk in stream:
+                chunk_dict = serializer(chunk)
+                chunk_dict = _postprocess_response(chunk_dict)
+                yield SSE-formatted bytes
+
+        Override this method to replace the entire streaming pipeline
+        — for example to add custom chunk transformation, backpressure
+        handling, or alternative transport — without modifying the
+        route handlers.
+
+        Args:
+            body: The parsed request body dict (after pre-processing).
+            sdk_method: The OpenAI SDK method to call, e.g.
+                ``proxy._client.chat.completions.create``.
+                Called as ``sdk_method(**body, stream=True)``.
+            serializer: Converts a raw SDK chunk object to a plain dict.
+                Default: ``chunk.model_dump()``.
+
+        Yields:
+            SSE-formatted bytes for each chunk, terminating with
+            ``data: [DONE]\n\n``.
+        """
+        from .streaming import _iterate_stream
+
+        body = self._preprocess_request(body)
+        stream = sdk_method(**body, stream=True)
+        return _iterate_stream(
+            stream=stream,
+            postprocess=self._postprocess_response,
+            serializer=serializer,
+        )
 
     def deploy(self, host: str = "localhost", port: int = 8000) -> None:
         """Start the proxy server.
