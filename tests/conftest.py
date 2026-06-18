@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, PropertyMock
 
 import pytest
@@ -35,6 +36,171 @@ def mock_openai_client() -> MagicMock:
     client.moderations = mock_moderations
 
     return client
+
+
+# ------------------------------------------------------------------
+# Streaming mock fixtures
+# ------------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_chat_stream_chunks() -> list[dict[str, Any]]:
+    """Return a list of raw dicts representing chat completion stream chunks."""
+    return [
+        {
+            "id": "chatcmpl-abc123",
+            "object": "chat.completion.chunk",
+            "created": 1700000000,
+            "model": "gpt-4",
+            "choices": [
+                {"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}
+            ],
+        },
+        {
+            "id": "chatcmpl-abc123",
+            "object": "chat.completion.chunk",
+            "created": 1700000000,
+            "model": "gpt-4",
+            "choices": [
+                {"index": 0, "delta": {"content": "Hello"}, "finish_reason": None}
+            ],
+        },
+        {
+            "id": "chatcmpl-abc123",
+            "object": "chat.completion.chunk",
+            "created": 1700000000,
+            "model": "gpt-4",
+            "choices": [
+                {"index": 0, "delta": {"content": " world"}, "finish_reason": None}
+            ],
+        },
+        {
+            "id": "chatcmpl-abc123",
+            "object": "chat.completion.chunk",
+            "created": 1700000000,
+            "model": "gpt-4",
+            "choices": [
+                {"index": 0, "delta": {}, "finish_reason": "stop"}
+            ],
+        },
+    ]
+
+
+@pytest.fixture
+def mock_completion_stream_chunks() -> list[dict[str, Any]]:
+    """Return a list of raw dicts representing legacy completion stream chunks."""
+    return [
+        {
+            "id": "cmpl-abc123",
+            "object": "text_completion",
+            "created": 1700000000,
+            "model": "gpt-4",
+            "choices": [
+                {"text": "Hello", "index": 0, "finish_reason": None, "logprobs": None}
+            ],
+        },
+        {
+            "id": "cmpl-abc123",
+            "object": "text_completion",
+            "created": 1700000000,
+            "model": "gpt-4",
+            "choices": [
+                {"text": " world", "index": 0, "finish_reason": None, "logprobs": None}
+            ],
+        },
+        {
+            "id": "cmpl-abc123",
+            "object": "text_completion",
+            "created": 1700000000,
+            "model": "gpt-4",
+            "choices": [
+                {"text": "", "index": 0, "finish_reason": "stop", "logprobs": None}
+            ],
+        },
+    ]
+
+
+@pytest.fixture
+def mock_response_stream_chunks() -> list[dict[str, Any]]:
+    """Return a list of raw dicts representing Responses API stream events."""
+    return [
+        {
+            "type": "response.output_text.delta",
+            "delta": "Hello",
+        },
+        {
+            "type": "response.output_text.delta",
+            "delta": " world",
+        },
+        {
+            "type": "response.output_text.done",
+            "delta": None,
+        },
+    ]
+
+
+@pytest.fixture
+def mock_chat_stream(mock_chat_stream_chunks: list[dict[str, Any]]) -> list[MagicMock]:
+    """Return a list of MagicMock objects simulating a chat stream."""
+    chunks = []
+    for chunk_dict in mock_chat_stream_chunks:
+        mock_chunk = MagicMock()
+        mock_chunk.model_dump.return_value = chunk_dict
+        chunks.append(mock_chunk)
+    return chunks
+
+
+@pytest.fixture
+def mock_completion_stream(
+    mock_completion_stream_chunks: list[dict[str, Any]],
+) -> list[MagicMock]:
+    """Return a list of MagicMock objects simulating a completion stream."""
+    chunks = []
+    for chunk_dict in mock_completion_stream_chunks:
+        mock_chunk = MagicMock()
+        mock_chunk.model_dump.return_value = chunk_dict
+        chunks.append(mock_chunk)
+    return chunks
+
+
+@pytest.fixture
+def mock_response_stream(
+    mock_response_stream_chunks: list[dict[str, Any]],
+) -> list[MagicMock]:
+    """Return a list of MagicMock objects simulating a responses stream."""
+    chunks = []
+    for chunk_dict in mock_response_stream_chunks:
+        mock_chunk = MagicMock()
+        mock_chunk.model_dump.return_value = chunk_dict
+        chunks.append(mock_chunk)
+    return chunks
+
+
+@pytest.fixture
+def mock_client_with_chat_stream(
+    mock_openai_client: MagicMock, mock_chat_stream: list[MagicMock]
+) -> MagicMock:
+    """Configure the mock OpenAI client to return a chat stream on create(stream=True)."""
+    mock_openai_client.chat.completions.create.return_value = mock_chat_stream
+    return mock_openai_client
+
+
+@pytest.fixture
+def mock_client_with_completion_stream(
+    mock_openai_client: MagicMock, mock_completion_stream: list[MagicMock]
+) -> MagicMock:
+    """Configure the mock OpenAI client to return a completion stream on create(stream=True)."""
+    mock_openai_client.completions.create.return_value = mock_completion_stream
+    return mock_openai_client
+
+
+@pytest.fixture
+def mock_client_with_response_stream(
+    mock_openai_client: MagicMock, mock_response_stream: list[MagicMock]
+) -> MagicMock:
+    """Configure the mock OpenAI client to return a response stream on create(stream=True)."""
+    mock_openai_client.responses.create.return_value = mock_response_stream
+    return mock_openai_client
 
 
 @pytest.fixture
