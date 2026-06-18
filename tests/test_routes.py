@@ -216,6 +216,34 @@ class TestChatCompletions:
 
         assert calls["pre"] == 1
 
+    def test_streaming_error_included_as_chunk(
+        self, client: TestClient, mock_openai_client: MagicMock
+    ):
+        """When the stream raises OpenAIError mid-stream, the error should
+        be serialised as a chunk in the SSE response."""
+        chunk = MagicMock()
+        chunk.model_dump.return_value = {
+            "id": "chatcmpl-abc",
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": {"content": "before"}}],
+        }
+
+        def raising_stream():
+            yield chunk
+            raise OpenAIError("Connection dropped")
+
+        mock_openai_client.chat.completions.create.return_value = raising_stream()
+
+        resp = client.post(
+            "/chat/completions",
+            json={"model": "gpt-4", "messages": [], "stream": True},
+        )
+
+        assert resp.status_code == 200
+        assert '"content": "before"' in resp.text
+        assert "Connection dropped" in resp.text
+        assert "data: [DONE]" in resp.text
+
     def test_openai_error(self, client: TestClient, mock_openai_client: MagicMock):
         mock_openai_client.chat.completions.create.side_effect = _make_openai_error(
             400, "Bad Request"
