@@ -149,6 +149,9 @@ class APIModelProxy:
 
         Args:
             body: The parsed request body dict (after pre-processing).
+                May contain ``"stream": True`` which is stripped before
+                forwarding to the SDK (``stream=True`` is passed
+                explicitly).
             sdk_method: The OpenAI SDK method to call, e.g.
                 ``proxy._client.chat.completions.create``.
                 Called as ``sdk_method(**body, stream=True)``.
@@ -162,6 +165,9 @@ class APIModelProxy:
         from .streaming import _iterate_stream
 
         body = self._preprocess_request(body)
+        # Remove stream flag from body to avoid duplicating it as both
+        # a body field and an explicit keyword argument.
+        body.pop("stream", None)
         stream = sdk_method(**body, stream=True)
         return _iterate_stream(
             stream=stream,

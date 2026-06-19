@@ -168,7 +168,6 @@ class TestIterateStream:
     async def test_calls_serializer_for_each_chunk(self):
         from api_model_proxy.streaming import _iterate_stream
 
-        chunk = MagicMock()
         raw_obj = object()
 
         def custom_serializer(obj):
