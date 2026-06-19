@@ -12,6 +12,7 @@ A lightweight, extensible proxy layer for OpenAI-compatible APIs. Drop it betwee
 - **Hook-based** — override `_preprocess_request` and `_postprocess_response` to customise behaviour
 - **Full API coverage** — proxies all inference endpoints (chat, completions, responses, embeddings, audio, images, moderations) with hooks; all other endpoints (models, files, fine-tuning, batches, vector stores, etc.) are forwarded transparently
 - **Error visibility** — `_postprocess_response` is called on both success and error responses, allowing subclasses to inspect or modify errors
+- **SSE streaming** — full support for ``stream=True`` on chat, completions, and responses endpoints, with hooks fired on every chunk
 - **FastAPI + uvicorn** — async, production-ready server with auto-generated docs at `/docs`
 
 ## Use Cases
@@ -126,6 +127,7 @@ Subclass `APIModelProxy` and override either or both hooks:
 |---|---|---|
 | `_preprocess_request(request: dict) -> dict` | Every inference request, before forwarding | No-op (return as-is) |
 | `_postprocess_response(response: dict) -> dict` | Every inference response (success **and** error) | No-op (return as-is) |
+| `execute_streaming_request(body, sdk_method, serializer)` | Streaming inference requests (``stream=True``) | Runs ``_preprocess_request``, starts SDK stream, yields SSE chunks through ``_postprocess_response`` |
 
 ### Example: request filtering
 
@@ -195,7 +197,57 @@ All other endpoints — models, files, fine-tuning, batches, vector stores, eval
 
 ## Streaming
 
-Streaming (`stream=True`) is not yet supported. Requests with `stream=True` will receive a `501 Not Implemented` response. Streaming support is planned for the next version.
+Streaming (``stream=True``) is fully supported for chat completions,
+legacy completions, and the responses API. The proxy emits
+`text/event-stream` SSE responses in the standard OpenAI wire format,
+so existing client SDKs work transparently with ``stream=True``.
+
+### Hook behaviour during streaming
+
+- ``_preprocess_request`` is called **once** before the stream begins,
+  allowing you to modify or reject the request.
+- ``_postprocess_response`` is called on **every chunk** in the stream,
+  allowing you to inspect, modify, or log individual tokens.
+- If the upstream stream raises an error mid-response, the error is
+  serialised as a chunk in the SSE stream (not as a separate HTTP
+  error), and then the stream is closed.
+
+### Example: streaming with hooks
+
+```python
+from openai import OpenAI
+from api_model_proxy import APIModelProxy
+
+class TokenCountingProxy(APIModelProxy):
+    def __init__(self, client):
+        super().__init__(client)
+        self.token_count = 0
+
+    def _postprocess_response(self, response):
+        # Count tokens per chunk during streaming
+        choices = response.get("choices", [])
+        for choice in choices:
+            delta = choice.get("delta", {})
+            if "content" in delta and delta["content"]:
+                self.token_count += 1
+        return response
+
+proxy = TokenCountingProxy(OpenAI())
+proxy.deploy()
+```
+
+Then use it from any OpenAI client with ``stream=True``:
+
+```python
+client = OpenAI(base_url="http://localhost:8000", api_key="EMPTY")
+stream = client.chat.completions.create(
+    model="gpt-4",
+    messages=[{"role": "user", "content": "Count to five"}],
+    stream=True,
+)
+for chunk in stream:
+    print(chunk.choices[0].delta.content or "", end="")
+```
 
 ## Running Tests
 
@@ -215,6 +267,8 @@ src/api_model_proxy/
 ├── __init__.py          # exports APIModelProxy
 ├── proxy.py             # APIModelProxy base class
 ├── server.py            # FastAPI app factory
+├── sentinels.py         # PipelineResult dataclass
+├── streaming.py         # SSE streaming utilities
 └── routes/
     ├── chat.py          # POST /chat/completions
     ├── completions.py   # POST /completions

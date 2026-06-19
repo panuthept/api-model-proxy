@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
 from fastapi.testclient import TestClient
-from openai import APIError, APIStatusError, OpenAIError
+from openai import APIStatusError, OpenAIError
 from openai.types.chat import ChatCompletion, ChatCompletionMessage
 from openai.types.chat.chat_completion import Choice
 
@@ -154,15 +153,95 @@ class TestChatCompletions:
 
         assert resp.status_code == 200
 
-    def test_streaming_not_supported(self, client: TestClient, mock_openai_client: MagicMock):
+    def test_streaming_success(self, client: TestClient, mock_openai_client: MagicMock):
+        chunk1 = MagicMock()
+        chunk1.model_dump.return_value = {
+            "id": "chatcmpl-abc",
+            "object": "chat.completion.chunk",
+            "created": 1700000000,
+            "model": "gpt-4",
+            "choices": [
+                {"index": 0, "delta": {"content": "Hello"}, "finish_reason": None}
+            ],
+        }
+        chunk2 = MagicMock()
+        chunk2.model_dump.return_value = {
+            "id": "chatcmpl-abc",
+            "object": "chat.completion.chunk",
+            "created": 1700000000,
+            "model": "gpt-4",
+            "choices": [
+                {"index": 0, "delta": {}, "finish_reason": "stop"}
+            ],
+        }
+        mock_openai_client.chat.completions.create.return_value = [chunk1, chunk2]
+
         resp = client.post(
             "/chat/completions",
             json={"model": "gpt-4", "messages": [], "stream": True},
         )
 
-        assert resp.status_code == 501
-        assert resp.json()["error"]["code"] == "streaming_not_supported"
-        mock_openai_client.chat.completions.create.assert_not_called()
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "text/event-stream; charset=utf-8"
+        body = resp.text
+        assert "data: {" in body
+        assert '"content": "Hello"' in body
+        assert "data: [DONE]" in body
+
+    def test_streaming_preprocess_hook_called(
+        self, client: TestClient, mock_openai_client: MagicMock, proxy
+    ):
+        chunk = MagicMock()
+        chunk.model_dump.return_value = {
+            "id": "chatcmpl-abc",
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": {"content": "Hi"}}],
+        }
+        mock_openai_client.chat.completions.create.return_value = [chunk]
+
+        calls = {"pre": 0}
+        original_pre = proxy._preprocess_request
+
+        def tracking_pre(request):
+            calls["pre"] += 1
+            return original_pre(request)
+
+        proxy._preprocess_request = tracking_pre
+
+        client.post(
+            "/chat/completions",
+            json={"model": "gpt-4", "messages": [], "stream": True},
+        )
+
+        assert calls["pre"] == 1
+
+    def test_streaming_error_included_as_chunk(
+        self, client: TestClient, mock_openai_client: MagicMock
+    ):
+        """When the stream raises OpenAIError mid-stream, the error should
+        be serialised as a chunk in the SSE response."""
+        chunk = MagicMock()
+        chunk.model_dump.return_value = {
+            "id": "chatcmpl-abc",
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": {"content": "before"}}],
+        }
+
+        def raising_stream():
+            yield chunk
+            raise OpenAIError("Connection dropped")
+
+        mock_openai_client.chat.completions.create.return_value = raising_stream()
+
+        resp = client.post(
+            "/chat/completions",
+            json={"model": "gpt-4", "messages": [], "stream": True},
+        )
+
+        assert resp.status_code == 200
+        assert '"content": "before"' in resp.text
+        assert "Connection dropped" in resp.text
+        assert "data: [DONE]" in resp.text
 
     def test_openai_error(self, client: TestClient, mock_openai_client: MagicMock):
         mock_openai_client.chat.completions.create.side_effect = _make_openai_error(
@@ -240,13 +319,29 @@ class TestCompletions:
         assert resp.status_code == 200
         assert resp.json()["id"] == "cmpl-xxx"
 
-    def test_streaming_not_supported(self, client: TestClient, mock_openai_client: MagicMock):
+    def test_streaming_success(self, client: TestClient, mock_openai_client: MagicMock):
+        chunk1 = MagicMock()
+        chunk1.model_dump.return_value = {
+            "id": "cmpl-abc",
+            "object": "text_completion",
+            "choices": [{"text": "Hello", "index": 0, "finish_reason": None}],
+        }
+        chunk2 = MagicMock()
+        chunk2.model_dump.return_value = {
+            "id": "cmpl-abc",
+            "object": "text_completion",
+            "choices": [{"text": " world", "index": 0, "finish_reason": "stop"}],
+        }
+        mock_openai_client.completions.create.return_value = [chunk1, chunk2]
+
         resp = client.post(
             "/completions",
             json={"model": "gpt-4", "prompt": "Hello", "stream": True},
         )
 
-        assert resp.status_code == 501
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "text/event-stream; charset=utf-8"
+        assert "data: [DONE]" in resp.text
 
     def test_openai_error(self, client: TestClient, mock_openai_client: MagicMock):
         mock_openai_client.completions.create.side_effect = _make_openai_error(
@@ -269,13 +364,27 @@ class TestResponses:
         assert resp.status_code == 200
         assert resp.json()["id"] == "resp-xxx"
 
-    def test_streaming_not_supported(self, client: TestClient, mock_openai_client: MagicMock):
+    def test_streaming_success(self, client: TestClient, mock_openai_client: MagicMock):
+        chunk1 = MagicMock()
+        chunk1.model_dump.return_value = {
+            "type": "response.output_text.delta",
+            "delta": "Hello",
+        }
+        chunk2 = MagicMock()
+        chunk2.model_dump.return_value = {
+            "type": "response.output_text.done",
+            "delta": None,
+        }
+        mock_openai_client.responses.create.return_value = [chunk1, chunk2]
+
         resp = client.post(
             "/responses",
             json={"model": "gpt-4", "input": "Hello", "stream": True},
         )
 
-        assert resp.status_code == 501
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "text/event-stream; charset=utf-8"
+        assert "data: [DONE]" in resp.text
 
     def test_openai_error(self, client: TestClient, mock_openai_client: MagicMock):
         mock_openai_client.responses.create.side_effect = _make_openai_error(

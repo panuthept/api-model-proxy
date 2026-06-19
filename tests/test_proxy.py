@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -248,3 +249,110 @@ class TestExecuteRequest:
         )
         assert result.content == {"choices": []}
         assert result.status_code == 200
+
+
+class TestExecuteStreamingRequest:
+    """Tests for APIModelProxy.execute_streaming_request()."""
+
+    @pytest.mark.asyncio
+    async def test_returns_async_generator(self, proxy: APIModelProxy, mock_openai_client: MagicMock):
+        chunk = MagicMock()
+        chunk.model_dump.return_value = {"content": "Hello"}
+        mock_openai_client.chat.completions.create.return_value = [chunk]
+
+        gen = proxy.execute_streaming_request(
+            body={"model": "gpt-4", "messages": [], "stream": True},
+            sdk_method=mock_openai_client.chat.completions.create,
+        )
+
+        assert isinstance(gen, AsyncGenerator)
+
+    @pytest.mark.asyncio
+    async def test_calls_preprocess_request(self, proxy: APIModelProxy, mock_openai_client: MagicMock):
+        chunk = MagicMock()
+        chunk.model_dump.return_value = {"content": "Hello"}
+        mock_openai_client.chat.completions.create.return_value = [chunk]
+
+        calls = {"pre": 0}
+        original = proxy._preprocess_request
+
+        def tracking(request):
+            calls["pre"] += 1
+            return original(request)
+
+        proxy._preprocess_request = tracking
+
+        async for _ in proxy.execute_streaming_request(
+            body={"model": "gpt-4", "messages": [], "stream": True},
+            sdk_method=mock_openai_client.chat.completions.create,
+        ):
+            pass
+
+        assert calls["pre"] == 1
+
+    @pytest.mark.asyncio
+    async def test_calls_sdk_with_stream_true(self, proxy: APIModelProxy, mock_openai_client: MagicMock):
+        chunk = MagicMock()
+        chunk.model_dump.return_value = {"content": "Hello"}
+        mock_openai_client.chat.completions.create.return_value = [chunk]
+
+        async for _ in proxy.execute_streaming_request(
+            body={"model": "gpt-4", "messages": []},
+            sdk_method=mock_openai_client.chat.completions.create,
+        ):
+            pass
+
+        mock_openai_client.chat.completions.create.assert_called_once_with(
+            model="gpt-4", messages=[], stream=True
+        )
+
+    @pytest.mark.asyncio
+    async def test_strips_stream_from_body(self, proxy: APIModelProxy, mock_openai_client: MagicMock):
+        """stream flag should be removed from body to avoid duplicate kwarg."""
+        chunk = MagicMock()
+        chunk.model_dump.return_value = {"content": "Hello"}
+        mock_openai_client.chat.completions.create.return_value = [chunk]
+
+        async for _ in proxy.execute_streaming_request(
+            body={"model": "gpt-4", "stream": True},
+            sdk_method=mock_openai_client.chat.completions.create,
+        ):
+            pass
+
+        # stream=True should only appear once (as explicit kwarg, not in body)
+        mock_openai_client.chat.completions.create.assert_called_once_with(
+            model="gpt-4", stream=True
+        )
+
+    @pytest.mark.asyncio
+    async def test_yields_sse_bytes(self, proxy: APIModelProxy, mock_openai_client: MagicMock):
+        chunk = MagicMock()
+        chunk.model_dump.return_value = {"content": "Hello"}
+        mock_openai_client.chat.completions.create.return_value = [chunk]
+
+        gen = proxy.execute_streaming_request(
+            body={"model": "gpt-4", "messages": []},
+            sdk_method=mock_openai_client.chat.completions.create,
+        )
+
+        result = b"".join([item async for item in gen]).decode("utf-8")
+        assert 'data: {"content": "Hello"}' in result
+        assert "data: [DONE]" in result
+
+    @pytest.mark.asyncio
+    async def test_subclass_can_override_streaming(self, mock_openai_client: MagicMock):
+        class CustomStreamProxy(APIModelProxy):
+            async def custom_gen(self):
+                yield b"custom stream data"
+
+            def execute_streaming_request(self, body, sdk_method, serializer=lambda r: r.model_dump()):
+                return self.custom_gen()
+
+        proxy = CustomStreamProxy(mock_openai_client)
+        gen = proxy.execute_streaming_request(
+            body={"model": "gpt-4"},
+            sdk_method=mock_openai_client.chat.completions.create,
+        )
+        result = b"".join([item async for item in gen]).decode("utf-8")
+        assert result == "custom stream data"
+        mock_openai_client.chat.completions.create.assert_not_called()

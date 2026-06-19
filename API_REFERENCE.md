@@ -55,6 +55,34 @@ This method is **always** called — on both `2xx` success responses and `4xx`/`
 
 **Note for `/audio/speech`**: The response is binary audio bytes, not JSON. The hook receives a dict with a single key `{"bytes_length": <int>}` instead of the full response body. The audio bytes are forwarded as-is.
 
+### Streaming Pipeline
+
+#### `execute_streaming_request`
+
+```python
+def execute_streaming_request(
+    self,
+    body: dict,
+    sdk_method: Callable[..., Any],
+    serializer: Callable[[Any], dict] = lambda r: r.model_dump(),
+) -> AsyncGenerator[bytes, None]
+```
+
+Execute the streaming request pipeline. Called by route handlers when
+``body["stream"]`` is ``True``.
+
+| | |
+|---|---|
+| **Args** | `body` — the parsed request body dict (``"stream"`` is stripped before forwarding to the SDK) |
+| | `sdk_method` — the OpenAI SDK method to call, e.g. ``proxy._client.chat.completions.create`` |
+| | `serializer` — converts a raw SDK chunk object to a plain dict (default: ``chunk.model_dump()``) |
+| **Yields** | SSE-formatted ``bytes`` for each chunk, terminating with ``data: [DONE]\n\n`` |
+| **Default** | Runs ``_preprocess_request(body)``, calls ``sdk_method(**body, stream=True)``, yields each chunk through ``_postprocess_response`` formatted as SSE |
+
+Override this method to replace the entire streaming pipeline — for
+example to add custom chunk transformation, backpressure handling,
+multi-destination fan-out, or an alternative transport protocol.
+
 ### Server
 
 #### `deploy`
@@ -106,9 +134,9 @@ The application also provides auto-generated OpenAPI docs at `/docs` and `/redoc
 
 ## Route Handlers
 
-### Inference Routes
+### Inference Routes (non-streaming)
 
-All inference routes follow the same pattern:
+All inference routes follow the same pattern for non-streaming requests:
 
 1. Parse request body from JSON (or `multipart/form-data` for audio/images).
 2. Call `proxy._preprocess_request(body)`.
@@ -118,6 +146,22 @@ All inference routes follow the same pattern:
 6. Return the (possibly modified) response as JSON.
 
 On `OpenAIError` during step 3, the error is serialised to a dict and passed through `_postprocess_response` before being returned with the appropriate HTTP status code.
+
+### Inference Routes (streaming)
+
+When ``body["stream"]`` is ``True`` on chat, completions, or responses
+endpoints, the route handler follows a different path:
+
+1. Call ``proxy._preprocess_request(body)``.
+2. Forward the (possibly modified) body to ``proxy.execute_streaming_request()``.
+3. Wrap the returned async generator in a ``StreamingResponse`` with
+   ``media_type="text/event-stream"``.
+4. Each chunk from the upstream stream is serialised, passed through
+   ``_postprocess_response``, and formatted as an SSE ``data:`` frame.
+5. The stream terminates with ``data: [DONE]\n\n``.
+
+On ``OpenAIError`` mid-stream, the error is serialised as a chunk and
+sent through the SSE stream before termination.
 
 | Route | OpenAI SDK Method | Body Format |
 |---|---|---|
@@ -167,24 +211,5 @@ The serialised error dict is then passed through `_postprocess_response` before 
 | Scenario | Status Code |
 |---|---|
 | Success | `200` |
-| Streaming requested (unsupported) | `501` |
 | OpenAI API error | Extracted from `OpenAIError.status_code` (falls back to `500`) |
 | Pre-process hook raises | `500` |
-
----
-
-## Streaming
-
-**Not yet supported.** Any inference request with `"stream": true` in the body receives:
-
-```json
-{
-  "error": {
-    "message": "Streaming is not yet supported by this proxy. It will be available in a future version.",
-    "type": "not_implemented",
-    "code": "streaming_not_supported"
-  }
-}
-```
-
-with HTTP status `501`. The upstream SDK is not called.
